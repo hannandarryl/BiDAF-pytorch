@@ -2,6 +2,8 @@ import json
 import os
 import nltk
 import torch
+import csv
+import string
 
 from torchtext import data
 from torchtext import datasets
@@ -12,9 +14,30 @@ def word_tokenize(tokens):
     return [token.replace("''", '"').replace("``", '"') for token in nltk.word_tokenize(tokens)]
 
 
+def format_table_string(table_reader):
+    # column_vals = ''
+    tmp_str = ''
+    for i, row in enumerate(table_reader):
+        # if i == 0:
+        #    column_vals = row
+        # row_val = ''
+        for j, val in enumerate(row):
+            # if j == 0:
+            #    tmp_str += column_vals[j] + ' ' + val
+            #    row_val = val
+            #    continue
+
+            # tmp_str += ' ' + column_vals[j] + ' ' + row_val + ' ' + val
+            tmp_str += val + ' '
+
+        tmp_str += '.\n'
+
+    return tmp_str
+
+
 class SQuAD():
     def __init__(self, args):
-        path = '.data/squad'
+        path = '.data/wikitables'
         dataset_path = path + '/torchtext/'
         train_examples_path = dataset_path + 'train_examples.pt'
         dev_examples_path = dataset_path + 'dev_examples.pt'
@@ -78,52 +101,52 @@ class SQuAD():
 
     def preprocess_file(self, path):
         dump = []
-        abnormals = [' ', '\n', '\u3000', '\u202f', '\u2009']
 
-        with open(path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-            data = data['data']
+        with open(path, "r", encoding='utf-8') as reader:
+            source = csv.reader(reader, delimiter='\t')
 
-            for article in data:
-                for paragraph in article['paragraphs']:
-                    context = paragraph['context']
-                    tokens = word_tokenize(context)
-                    for qa in paragraph['qas']:
-                        id = qa['id']
-                        question = qa['question']
-                        for ans in qa['answers']:
-                            answer = ans['text']
-                            s_idx = ans['answer_start']
-                            e_idx = s_idx + len(answer)
+            for count, row in enumerate(source):
+                if count == 0:
+                    continue
+                ex_id = row[0]
+                question_text = row[1]
+                answers = row[3]
+                table_file = row[2]
 
-                            l = 0
-                            s_found = False
-                            for i, t in enumerate(tokens):
-                                while l < len(context):
-                                    if context[l] in abnormals:
-                                        l += 1
-                                    else:
-                                        break
-                                # exceptional cases
-                                if t[0] == '"' and context[l:l + 2] == '\'\'':
-                                    t = '\'\'' + t[1:]
-                                elif t == '"' and context[l:l + 2] == '\'\'':
-                                    t = '\'\''
+                with open('wikitable_data/' + table_file, 'r') as table_csv:
+                    table_reader = csv.reader(table_csv, delimiter=',', quotechar='"')
 
-                                l += len(t)
-                                if l > s_idx and s_found == False:
-                                    s_idx = i
-                                    s_found = True
-                                if l >= e_idx:
-                                    e_idx = i
-                                    break
+                    try:
+                        paragraph_text = 'yes no\n' + format_table_string(table_reader)
+                    except Exception:
+                        continue
+                    doc_tokens = word_tokenize(paragraph_text)
 
-                            dump.append(dict([('id', id),
-                                              ('context', context),
-                                              ('question', question),
-                                              ('answer', answer),
-                                              ('s_idx', s_idx),
-                                              ('e_idx', e_idx)]))
+                    start_position = None
+                    end_position = None
+                    orig_answer_text = None
+                    for answer in answers.split('|'):
+                        orig_answer_text = answer
+                        start_position = None
+                        for i, token in enumerate(doc_tokens):
+                            candidate = token
+                            for c in string.punctuation:
+                                candidate = candidate.replace(c, '')
+                            if orig_answer_text == candidate:
+                                start_position = i
+                        if start_position is None:
+                            continue
+                        end_position = start_position
+
+                    if start_position is None:
+                        continue
+
+                    dump.append(dict([('id', ex_id),
+                                      ('context', paragraph_text),
+                                      ('question', question_text),
+                                      ('answer', orig_answer_text),
+                                      ('s_idx', start_position),
+                                      ('e_idx', end_position)]))
 
         with open(f'{path}l', 'w', encoding='utf-8') as f:
             for line in dump:
