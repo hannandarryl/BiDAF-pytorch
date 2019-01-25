@@ -127,7 +127,7 @@ def main():
     parser.add_argument('--char-channel-size', default=100, type=int)
     parser.add_argument('--context-threshold', default=400, type=int)
     parser.add_argument('--dev-batch-size', default=3, type=int)
-    parser.add_argument('--dev-file', default='pristine-unseen-tables.tsv')
+    parser.add_argument('--dev-file', default='processed_data.json')
     parser.add_argument('--dropout', default=0.2, type=float)
     parser.add_argument('--epoch', default=12, type=int)
     parser.add_argument('--exp-decay-rate', default=0.999, type=float)

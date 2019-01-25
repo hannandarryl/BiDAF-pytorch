@@ -28,7 +28,7 @@ def format_table_string(table_reader):
                 continue
 
             tmp_str += ' ' + column_vals[j] + ' ' + row_val + ' ' + val
-            #tmp_str += val + ' '
+            # tmp_str += val + ' '
 
         tmp_str += '.\n'
 
@@ -46,7 +46,7 @@ class SQuAD():
         if not os.path.exists(f'{path}/{args.train_file}l'):
             self.preprocess_file(f'{path}/{args.train_file}')
         if not os.path.exists(f'{path}/{args.dev_file}l'):
-            self.preprocess_file(f'{path}/{args.dev_file}')
+            self.preprocess_our_file(f'{path}/{args.dev_file}')
 
         self.RAW = data.RawField()
         self.CHAR_NESTING = data.Field(batch_first=True, tokenize=list, lower=True)
@@ -84,7 +84,7 @@ class SQuAD():
             torch.save(self.train.examples, train_examples_path)
             torch.save(self.dev.examples, dev_examples_path)
 
-        #cut too long context in the training set for efficiency.
+        # cut too long context in the training set for efficiency.
         if args.context_threshold > 0:
             self.train.examples = [e for e in self.train.examples if len(e.c_word) <= args.context_threshold]
 
@@ -98,6 +98,55 @@ class SQuAD():
                                        batch_sizes=[args.train_batch_size, args.dev_batch_size],
                                        device=args.gpu,
                                        sort_key=lambda x: len(x.c_word))
+
+    def preprocess_our_file(self, path):
+        dump = []
+
+        with open(path, "r", encoding='utf-8') as reader:
+            source = json.load(reader)
+
+            for obj in source:
+                ex_id = obj['id']
+                if not ex_id.startswith('table'):
+                    continue
+
+                table = obj['table']
+                table_list = table.split('\n')
+                table_reader = csv.reader(table_list)
+                try:
+                    paragraph_text = 'yes no\n' + format_table_string(table_reader)
+                except Exception:
+                    continue
+                doc_tokens = word_tokenize(paragraph_text)
+
+                question_text = obj['question']
+
+                start_position = None
+                end_position = None
+                orig_answer_text = obj['answer']
+                for i, token in enumerate(doc_tokens):
+                    candidate = token
+                    for c in string.punctuation:
+                        candidate = candidate.replace(c, '')
+
+                    if orig_answer_text == candidate:
+                        start_position = i
+                if start_position is None:
+                    continue
+                else:
+                    end_position = start_position
+
+                dump.append(dict([('id', ex_id),
+                                  ('context', paragraph_text),
+                                  ('question', question_text),
+                                  ('answer', orig_answer_text),
+                                  ('s_idx', start_position),
+                                  ('e_idx', end_position)]))
+
+        with open(f'{path}l', 'w', encoding='utf-8') as f:
+            for line in dump:
+                json.dump(line, f)
+                print('', file=f)
 
     def preprocess_file(self, path):
         dump = []
@@ -132,7 +181,7 @@ class SQuAD():
                             candidate = token
                             for c in string.punctuation:
                                 candidate = candidate.replace(c, '')
-                            
+
                             if orig_answer_text == candidate:
                                 start_position = i
                         if start_position is None:
