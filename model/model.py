@@ -82,9 +82,9 @@ class BiDAF(nn.Module):
             # (batch * seq_len, 1, char_dim, word_len)
             x = x.view(-1, self.args.char_dim, x.size(2)).unsqueeze(1)
             # (batch * seq_len, char_channel_size, 1, conv_len) -> (batch * seq_len, char_channel_size, conv_len)
-            x = self.char_conv(x).squeeze()
+            x = self.char_conv(x).squeeze(2)
             # (batch * seq_len, char_channel_size, 1) -> (batch * seq_len, char_channel_size)
-            x = F.max_pool1d(x, x.size(2)).squeeze()
+            x = F.max_pool1d(x, x.size(2)).squeeze(2)
             # (batch, seq_len, char_channel_size)
             x = x.view(batch_size, -1, self.args.char_channel_size)
 
@@ -144,7 +144,7 @@ class BiDAF(nn.Module):
             # (batch, 1, c_len)
             b = F.softmax(torch.max(s, dim=2)[0], dim=1).unsqueeze(1)
             # (batch, 1, c_len) * (batch, c_len, hidden_size * 2) -> (batch, hidden_size * 2)
-            q2c_att = torch.bmm(b, c).squeeze()
+            q2c_att = torch.bmm(b, c).squeeze(1)
             # (batch, c_len, hidden_size * 2) (tiled)
             q2c_att = q2c_att.unsqueeze(1).expand(-1, c_len, -1)
             # q2c_att = torch.stack([q2c_att] * c_len, dim=1)
@@ -160,11 +160,11 @@ class BiDAF(nn.Module):
             :return: p1: (batch, c_len), p2: (batch, c_len)
             """
             # (batch, c_len)
-            p1 = (self.p1_weight_g(g) + self.p1_weight_m(m)).squeeze()
+            p1 = (self.p1_weight_g(g) + self.p1_weight_m(m)).squeeze(2)
             # (batch, c_len, hidden_size * 2)
             m2 = self.output_LSTM((m, l))[0]
             # (batch, c_len)
-            p2 = (self.p2_weight_g(g) + self.p2_weight_m(m2)).squeeze()
+            p2 = (self.p2_weight_g(g) + self.p2_weight_m(m2)).squeeze(2)
 
             return p1, p2
 
@@ -176,6 +176,7 @@ class BiDAF(nn.Module):
         q_word = self.word_emb(batch.q_word[0])
         c_lens = batch.c_word[1]
         q_lens = batch.q_word[1]
+
 
         # Highway network
         c = highway_network(c_char, c_word)

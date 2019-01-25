@@ -1,0 +1,6 @@
+.vector_cache
+*__pycache__
+prediction*
+runs/
+saved_models/
+*/torchtext/

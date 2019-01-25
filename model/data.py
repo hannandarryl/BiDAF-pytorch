@@ -15,20 +15,20 @@ def word_tokenize(tokens):
 
 
 def format_table_string(table_reader):
-    # column_vals = ''
+    column_vals = ''
     tmp_str = ''
     for i, row in enumerate(table_reader):
-        # if i == 0:
-        #    column_vals = row
-        # row_val = ''
+        if i == 0:
+            column_vals = row
+        row_val = ''
         for j, val in enumerate(row):
-            # if j == 0:
-            #    tmp_str += column_vals[j] + ' ' + val
-            #    row_val = val
-            #    continue
+            if j == 0:
+                tmp_str += column_vals[j] + ' ' + val
+                row_val = val
+                continue
 
-            # tmp_str += ' ' + column_vals[j] + ' ' + row_val + ' ' + val
-            tmp_str += val + ' '
+            tmp_str += ' ' + column_vals[j] + ' ' + row_val + ' ' + val
+            #tmp_str += val + ' '
 
         tmp_str += '.\n'
 
@@ -37,7 +37,7 @@ def format_table_string(table_reader):
 
 class SQuAD():
     def __init__(self, args):
-        path = '.data/wikitables'
+        path = '.data/wikitable/data'
         dataset_path = path + '/torchtext/'
         train_examples_path = dataset_path + 'train_examples.pt'
         dev_examples_path = dataset_path + 'dev_examples.pt'
@@ -113,7 +113,7 @@ class SQuAD():
                 answers = row[3]
                 table_file = row[2]
 
-                with open('wikitable_data/' + table_file, 'r') as table_csv:
+                with open('.data/wikitable/' + table_file, 'r') as table_csv:
                     table_reader = csv.reader(table_csv, delimiter=',', quotechar='"')
 
                     try:
@@ -132,11 +132,14 @@ class SQuAD():
                             candidate = token
                             for c in string.punctuation:
                                 candidate = candidate.replace(c, '')
+                            
                             if orig_answer_text == candidate:
                                 start_position = i
                         if start_position is None:
                             continue
-                        end_position = start_position
+                        else:
+                            end_position = start_position
+                            break
 
                     if start_position is None:
                         continue
