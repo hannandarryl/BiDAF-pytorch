@@ -54,25 +54,36 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
 
 
 def evaluate(dataset_file, predictions):
+    pairs = []
     with open(dataset_file) as dataset_tmp:
-        dataset = csv.reader(dataset_tmp, delimiter='\t')
+        source = json.load(dataset_tmp)
+
         f1 = exact_match = total = 0
-        for row in dataset:
-            ex_id = row[0]
+
+        for obj in source:
+            ex_id = obj['id']
             if ex_id not in predictions:
                 message = 'Unanswered question ' + ex_id + \
                             ' will receive score 0.'
                 continue
             total += 1
-            ground_truths = row[3].split('|')
+            ground_truths = [obj['answer']]
             prediction = predictions[ex_id]
+            old_em = exact_match
             exact_match += metric_max_over_ground_truths(
                 exact_match_score, prediction, ground_truths)
+            if exact_match == old_em:
+                pairs.append((obj['answer'], prediction))
             f1 += metric_max_over_ground_truths(
                 f1_score, prediction, ground_truths)
 
         exact_match = 100.0 * exact_match / total
         f1 = 100.0 * f1 / total
+
+    with open('manual_dump_file', 'w+') as dump_file:
+        for pair in pairs:
+            dump_file.write(pair[0] + '\n')
+            dump_file.write(pair[1] + '\n\n')
 
     return {'exact_match': exact_match, 'f1': f1}
 
@@ -93,4 +104,5 @@ if __name__ == '__main__':
     parser.add_argument('dataset_file', help='Dataset file')
     parser.add_argument('prediction_file', help='Prediction File')
     args = parser.parse_args()
-    main(args)
+    results = main(args)
+    print(results)

@@ -15,20 +15,20 @@ def word_tokenize(tokens):
 
 
 def format_table_string(table_reader):
-    column_vals = ''
+    #column_vals = ''
     tmp_str = ''
     for i, row in enumerate(table_reader):
-        if i == 0:
-            column_vals = row
-        row_val = ''
+        #if i == 0:
+        #    column_vals = row
+        #row_val = ''
         for j, val in enumerate(row):
-            if j == 0:
-                tmp_str += column_vals[j] + ' ' + val
-                row_val = val
-                continue
+        #    if j == 0:
+        #        tmp_str += column_vals[j] + ' ' + val
+        #        row_val = val
+        #        continue
 
-            tmp_str += ' ' + column_vals[j] + ' ' + row_val + ' ' + val
-            # tmp_str += val + ' '
+        #    tmp_str += ' ' + column_vals[j] + ' ' + row_val + ' ' + val
+            tmp_str += val + ' '
 
         tmp_str += '.\n'
 
@@ -101,16 +101,21 @@ class SQuAD():
 
     def preprocess_our_file(self, path):
         dump = []
+        def_wrong = 0
 
         with open(path, "r", encoding='utf-8') as reader:
             source = json.load(reader)
 
             for obj in source:
                 ex_id = obj['id']
-                if not ex_id.startswith('table'):
-                    continue
+                #if not ex_id.startswith('table'):
+                #    continue
 
                 table = obj['table']
+                if table is None:
+                    def_wrong += 1
+                    continue
+
                 table_list = table.split('\n')
                 table_reader = csv.reader(table_list)
                 try:
@@ -121,20 +126,14 @@ class SQuAD():
 
                 question_text = obj['question']
 
-                start_position = None
-                end_position = None
+                start_position = 1
+                end_position = 2
                 orig_answer_text = obj['answer']
-                for i, token in enumerate(doc_tokens):
-                    candidate = token
-                    for c in string.punctuation:
-                        candidate = candidate.replace(c, '')
-
-                    if orig_answer_text == candidate:
-                        start_position = i
-                if start_position is None:
+                
+                if not question_text.strip() or not orig_answer_text.strip() or not table.strip():
+                    if not table.strip():
+                        def_wrong += 1
                     continue
-                else:
-                    end_position = start_position
 
                 dump.append(dict([('id', ex_id),
                                   ('context', paragraph_text),
@@ -143,6 +142,8 @@ class SQuAD():
                                   ('s_idx', start_position),
                                   ('e_idx', end_position)]))
 
+        print('Number of examples that should be counted as wrong: ' + str(def_wrong))
+        print('Total number of valid examples: ' + str(len(dump)))
         with open(f'{path}l', 'w', encoding='utf-8') as f:
             for line in dump:
                 json.dump(line, f)
