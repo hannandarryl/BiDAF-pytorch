@@ -15,20 +15,21 @@ def word_tokenize(tokens):
 
 
 def format_table_string(table_reader):
-    #column_vals = ''
+    column_vals = ''
     tmp_str = ''
     for i, row in enumerate(table_reader):
-        #if i == 0:
-        #    column_vals = row
-        #row_val = ''
+        if i == 0:
+            column_vals = row
+        row_val = ''
         for j, val in enumerate(row):
-        #    if j == 0:
-        #        tmp_str += column_vals[j] + ' ' + val
-        #        row_val = val
-        #        continue
+            if j == 0:
+                tmp_str += column_vals[j] + ' ' + val
+                row_val = val
+                continue
 
-        #    tmp_str += ' ' + column_vals[j] + ' ' + row_val + ' ' + val
-            tmp_str += val + ' '
+            #tmp_str += ' ' + column_vals[j] + ' ' + row_val + ' ' + val
+            tmp_str += ' ' + column_vals[j] + ' ' + val
+            #tmp_str += val + ' '
 
         tmp_str += '.\n'
 
@@ -41,12 +42,15 @@ class SQuAD():
         dataset_path = path + '/torchtext/'
         train_examples_path = dataset_path + 'train_examples.pt'
         dev_examples_path = dataset_path + 'dev_examples.pt'
+        finetune_examples_path = dataset_path + 'finetune_examples.pt'
 
         print("preprocessing data files...")
         if not os.path.exists(f'{path}/{args.train_file}l'):
             self.preprocess_file(f'{path}/{args.train_file}')
         if not os.path.exists(f'{path}/{args.dev_file}l'):
-            self.preprocess_our_file(f'{path}/{args.dev_file}')
+            self.preprocess_file(f'{path}/{args.dev_file}')
+        if not os.path.exists(f'{path}/{args.finetune_file}l'):
+            self.preprocess_our_file(f'{path}/{args.finetune_file}', True)
 
         self.RAW = data.RawField()
         self.CHAR_NESTING = data.Field(batch_first=True, tokenize=list, lower=True)
@@ -68,38 +72,47 @@ class SQuAD():
             print("loading splits...")
             train_examples = torch.load(train_examples_path)
             dev_examples = torch.load(dev_examples_path)
+            finetune_examples = torch.load(finetune_examples_path)
 
             self.train = data.Dataset(examples=train_examples, fields=list_fields)
             self.dev = data.Dataset(examples=dev_examples, fields=list_fields)
+            self.finetune = data.Dataset(examples=finetune_examples, fields=list_fields)
         else:
             print("building splits...")
-            self.train, self.dev = data.TabularDataset.splits(
+            self.train, self.finetune, self.dev = data.TabularDataset.splits(
                 path=path,
                 train=f'{args.train_file}l',
-                validation=f'{args.dev_file}l',
+                validation=f'{args.finetune_file}l',
+                test=f'{args.dev_file}l',
                 format='json',
                 fields=dict_fields)
+            #self.finetune = data.TabularDataset.splits(
+            #        path=path,
+            #        train=f'{args.finetune_file}l',
+            #        format='json',
+            #        fields=dict_fields)
 
             os.makedirs(dataset_path)
             torch.save(self.train.examples, train_examples_path)
             torch.save(self.dev.examples, dev_examples_path)
+            torch.save(self.finetune.examples, finetune_examples_path)
 
         # cut too long context in the training set for efficiency.
         if args.context_threshold > 0:
             self.train.examples = [e for e in self.train.examples if len(e.c_word) <= args.context_threshold]
 
         print("building vocab...")
-        self.CHAR.build_vocab(self.train, self.dev)
-        self.WORD.build_vocab(self.train, self.dev, vectors=GloVe(name='6B', dim=args.word_dim))
+        self.CHAR.build_vocab(self.train, self.finetune, self.dev)
+        self.WORD.build_vocab(self.train, self.finetune, self.dev, vectors=GloVe(name='6B', dim=args.word_dim))
 
         print("building iterators...")
-        self.train_iter, self.dev_iter = \
-            data.BucketIterator.splits((self.train, self.dev),
-                                       batch_sizes=[args.train_batch_size, args.dev_batch_size],
+        self.train_iter, self.finetune_iter, self.dev_iter = \
+            data.BucketIterator.splits((self.train, self.finetune, self.dev),
+                                       batch_sizes=[args.train_batch_size, args.train_batch_size, args.dev_batch_size],
                                        device=args.gpu,
                                        sort_key=lambda x: len(x.c_word))
 
-    def preprocess_our_file(self, path):
+    def preprocess_our_file(self, path, finetune):
         dump = []
         def_wrong = 0
 
@@ -108,8 +121,8 @@ class SQuAD():
 
             for obj in source:
                 ex_id = obj['id']
-                #if not ex_id.startswith('table'):
-                #    continue
+                if finetune and not ex_id.startswith('table'):
+                    continue
 
                 table = obj['table']
                 if table is None:
@@ -122,13 +135,30 @@ class SQuAD():
                     paragraph_text = 'yes no\n' + format_table_string(table_reader)
                 except Exception:
                     continue
+
                 doc_tokens = word_tokenize(paragraph_text)
 
                 question_text = obj['question']
 
-                start_position = 1
-                end_position = 2
-                orig_answer_text = obj['answer']
+                if finetune:
+                    orig_answer_text = obj['answer'].lower().strip()
+                    start_position = None
+                    for i, token in enumerate(doc_tokens):
+                        candidate = token
+                        for c in string.punctuation:
+                            candidate = candidate.replace(c, '')
+
+                        if orig_answer_text == candidate:
+                            start_position = i
+                    if start_position is None:
+                        continue
+                    else:
+                        end_position = start_position
+
+                else:
+                    start_position = 1
+                    end_position = 2
+                    orig_answer_text = obj['answer']
                 
                 if not question_text.strip() or not orig_answer_text.strip() or not table.strip():
                     if not table.strip():
@@ -177,6 +207,8 @@ class SQuAD():
                     orig_answer_text = None
                     for answer in answers.split('|'):
                         orig_answer_text = answer
+                        if len(word_tokenize(orig_answer_text)) > 1:
+                            continue
                         start_position = None
                         for i, token in enumerate(doc_tokens):
                             candidate = token

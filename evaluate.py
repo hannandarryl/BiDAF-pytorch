@@ -52,9 +52,45 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
         scores_for_ground_truths.append(score)
     return max(scores_for_ground_truths)
 
+def evaluate_wikihop(dataset_file, predictions):
+    pairs = []
+    with open(dataset_file) as dataset_tmp:
+        source = csv.reader(dataset_tmp, delimiter='\t')
+
+        f1 = exact_match = total = 0
+
+        for row in source:
+            ex_id = row[0]
+            if ex_id not in predictions:
+                message = 'Unanswered question ' + ex_id + \
+                            ' will receive score 0.'
+                continue
+            total += 1
+            ground_truths = row[3].split('|')
+            prediction = predictions[ex_id]
+            old_em = exact_match
+            exact_match += metric_max_over_ground_truths(
+                exact_match_score, prediction, ground_truths)
+            if exact_match == old_em:
+                pairs.append((row[3], prediction))
+            f1 += metric_max_over_ground_truths(
+                f1_score, prediction, ground_truths)
+
+        exact_match = 100.0 * exact_match / total
+        f1 = 100.0 * f1 / total
+
+    with open('manual_dump_file', 'w+') as dump_file:
+        for pair in pairs:
+            dump_file.write(pair[0] + '\n')
+            dump_file.write(pair[1] + '\n\n')
+
+    return {'exact_match': exact_match, 'f1': f1}
+
+
 
 def evaluate(dataset_file, predictions):
     pairs = []
+    print(dataset_file)
     with open(dataset_file) as dataset_tmp:
         source = json.load(dataset_tmp)
 
@@ -92,7 +128,7 @@ def main(args):
     with open(args.prediction_file) as prediction_file:
         predictions = json.load(prediction_file)
 
-    results = evaluate(args.dataset_file, predictions)
+    results = evaluate_wikihop(args.dataset_file, predictions)
     #print(json.dumps(results))
     return results
 

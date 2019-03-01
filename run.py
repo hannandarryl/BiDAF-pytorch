@@ -73,7 +73,69 @@ def train(args, data):
     writer.close()
     print(f'max dev EM: {max_dev_exact:.3f} / max dev F1: {max_dev_f1:.3f}')
 
+    finetune(model, ema, args, data)
+
     return best_model
+
+def finetune(model, ema, args, data):
+    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
+
+    #ema = EMA(args.exp_decay_rate)
+    #for name, param in model.named_parameters():
+    #    if param.requires_grad:
+    #        ema.register(name, param.data)
+    parameters = filter(lambda p: p.requires_grad, model.parameters())
+    optimizer = optim.Adadelta(parameters, lr=args.learning_rate)
+    criterion = nn.CrossEntropyLoss()
+
+    writer = SummaryWriter(log_dir='runs_finetune/' + args.model_time)
+
+    #model.load_state_dict(torch.load('/home/darryl/BiDAF-pytorch/saved_models/BiDAF_21:09:02.pt'))
+    
+    #dev_loss, dev_exact, dev_f1 = test(model, ema, args, data)
+    model.train()
+    loss, last_epoch = 0, -1
+    max_dev_exact, max_dev_f1 = -1, -1
+
+    iterator = data.finetune_iter
+    for i, batch in enumerate(iterator):
+        present_epoch = int(iterator.epoch)
+        if present_epoch == 5:
+            break
+        if present_epoch > last_epoch:
+            print('epoch:', present_epoch + 1)
+        last_epoch = present_epoch
+
+        p1, p2 = model(batch)
+
+        optimizer.zero_grad()
+        batch_loss = criterion(p1, batch.s_idx) + criterion(p2, batch.e_idx)
+        loss += batch_loss.item()
+        batch_loss.backward()
+        optimizer.step()
+
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                ema.update(name, param.data)
+
+        if (i + 1) % 5 == 0:
+            dev_loss, dev_exact, dev_f1 = test(model, ema, args, data)
+            c = (i + 1) // args.print_freq
+
+            writer.add_scalar('loss/train', loss, c)
+            writer.add_scalar('loss/dev', dev_loss, c)
+            writer.add_scalar('exact_match/dev', dev_exact, c)
+            writer.add_scalar('f1/dev', dev_f1, c)
+            print(f'train loss: {loss:.3f} / dev loss: {dev_loss:.3f}'
+                  f' / dev EM: {dev_exact:.3f} / dev F1: {dev_f1:.3f}')
+
+            if dev_f1 > max_dev_f1:
+                max_dev_f1 = dev_f1
+                max_dev_exact = dev_exact
+                best_model = copy.deepcopy(model)
+
+            loss = 0
+            model.train()
 
 
 def test(model, ema, args, data):
@@ -127,9 +189,10 @@ def main():
     parser.add_argument('--char-channel-size', default=100, type=int)
     parser.add_argument('--context-threshold', default=400, type=int)
     parser.add_argument('--dev-batch-size', default=3, type=int)
-    parser.add_argument('--dev-file', default='tbl_examples.json')
+    parser.add_argument('--dev-file', default='pristine-unseen-tables.tsv')
+    parser.add_argument('--finetune-file', default='train_data.json')
     parser.add_argument('--dropout', default=0.2, type=float)
-    parser.add_argument('--epoch', default=12, type=int)
+    parser.add_argument('--epoch', default=30, type=int)
     parser.add_argument('--exp-decay-rate', default=0.999, type=float)
     parser.add_argument('--gpu', default=0, type=int)
     parser.add_argument('--hidden-size', default=100, type=int)
